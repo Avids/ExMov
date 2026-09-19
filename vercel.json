@@ -1,0 +1,3 @@
+{
+  "functions": { "api/expected-move.js": { "maxDuration": 30 } }
+}

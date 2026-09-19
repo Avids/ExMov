@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expected move calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eef1f4;
+    --panel: #fbfcfd;
+    --ink: #14202b;
+    --muted: #5a6b7a;
+    --rule: #d5dbe1;
+    --up: #0f8a6d;
+    --down: #c8452b;
+    --spot: #2f5bd3;
+    --focus: #2f5bd3;
+    font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body { background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }
+  .lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; }
+
+  form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 20px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 0.85rem; color: var(--muted); }
+  input, button { font: inherit; color: inherit; height: 42px; border-radius: 6px; border: 1px solid var(--rule); background: #fff; padding: 0 12px; }
+  input { width: 140px; font-weight: 600; text-transform: uppercase; }
+  button { cursor: pointer; font-weight: 600; }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .spacer { flex: 1; }
+
+  #status { min-height: 1.5em; margin: 0 0 12px; color: var(--muted); }
+  #status.error { color: var(--down); font-weight: 500; }
+
+  .summary { display: none; margin-bottom: 18px; }
+  .summary.on { display: block; }
+  .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
+  .title strong { font-size: 1.35rem; }
+  .title span { color: var(--muted); }
+  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 22px; margin: 0; }
+  .figures div { border-left: 3px solid var(--rule); padding-left: 10px; }
+  .figures .up { border-color: var(--up); }
+  .figures .down { border-color: var(--down); }
+  .figures .spot { border-color: var(--spot); }
+  .figures dt { font-size: 0.85rem; color: var(--muted); }
+  .figures dd { margin: 0; font-size: 1.3rem; font-weight: 600; }
+  .figures dd small { font-size: 0.85rem; font-weight: 500; color: var(--muted); }
+  .warn { margin: 12px 0 0; color: #8a5a00; font-size: 0.92rem; }
+
+  .chart-wrap { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  #chart { width: 100%; height: 440px; }
+  .empty { display: grid; place-items: center; height: 440px; color: var(--muted); padding: 20px; text-align: center; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 12px 0 0; font-size: 0.9rem; color: var(--muted); }
+  .legend i { display: inline-block; width: 18px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 6px; }
+  .table-wrap { margin-top: 26px; }
+  .table-wrap h2 { font-size: 1.05rem; margin: 0 0 8px; }
+  .scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  th, td { padding: 9px 14px; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 0.85rem; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--rule); }
+  tbody tr + tr td { border-top: 1px solid var(--grid, #eef1f4); }
+  td.up { color: var(--up); font-weight: 600; }
+  td.down { color: var(--down); font-weight: 600; }
+  tr.stale td:first-child::after { content: " *"; color: #8a5a00; }
+  .method { margin: 22px 0 0; font-size: 0.88rem; color: var(--muted); max-width: 80ch; }
+  @media (max-width: 560px) { #chart, .empty { height: 340px; } input { width: 110px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Expected move</h1>
+  <p class="lede">Enter a ticker to see the last 20 daily candles and the 1-sigma price range implied by at-the-money option prices for every expiry in the next 30 days.</p>
+
+  <form id="form">
+    <div class="field">
+      <label for="symbol">Ticker</label>
+      <input id="symbol" name="symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="15" placeholder="AAPL" required>
+    </div>
+    <button class="primary" id="go" type="submit">Load</button>
+    <span class="spacer"></span>
+    <button type="button" id="export" disabled>Export PNG</button>
+  </form>
+
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <section class="summary" id="summary">
+    <div class="title"><strong id="t-symbol"></strong><span id="t-name"></span><span id="t-expiry"></span></div>
+    <dl class="figures">
+      <div class="spot"><dt>Current price</dt><dd id="f-spot"></dd></div>
+      <div><dt id="l-near"></dt><dd id="f-near"></dd></div>
+      <div><dt id="l-far"></dt><dd id="f-far"></dd></div>
+      <div class="up"><dt id="l-up"></dt><dd id="f-up"></dd></div>
+      <div class="down"><dt id="l-down"></dt><dd id="f-down"></dd></div>
+    </dl>
+    <p class="warn" id="warn" hidden></p>
+  </section>
+
+  <div class="chart-wrap">
+    <div class="empty" id="empty">Enter a ticker above to draw the chart.</div>
+    <div id="chart" hidden></div>
+  </div>
+  <div class="legend" id="legend" hidden>
+    <span><i style="border-color:var(--spot)"></i>Current price</span>
+    <span><i style="border-color:var(--up)"></i>Upper 1σ band, one dot per expiry</span>
+    <span><i style="border-color:var(--down)"></i>Lower 1σ band, one dot per expiry</span>
+  </div>
+
+  <section class="table-wrap" id="table-sec" hidden>
+    <h2>Expected move by expiry</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Expiry</th><th>Days</th><th>ATM strike</th><th>Straddle</th><th>1σ move</th><th>Lower</th><th>Upper</th><th>IV-based move</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="method">Method: each point on the chart is one option expiry, calculated on its own. The 1σ move is the ATM straddle (call mid + put mid at the strike nearest the current price) × √(π/2) ≈ 1.25, which converts the straddle's expected absolute move into one standard deviation. The IV cross-check is price × IV × √(days to expiry / 365). Roughly two thirds of outcomes are expected to finish inside the band at expiry. Data comes from Yahoo Finance and may be delayed. This is not investment advice.</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const COLORS = { ink: "#14202b", up: "#0f8a6d", down: "#c8452b", spot: "#2f5bd3", grid: "#eef1f4", rule: "#d5dbe1", panel: "#fbfcfd" };
+  const fmt = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  let chart = null, series = [], current = null;
+
+  function setStatus(msg, isError) {
+    const s = $("status");
+    s.textContent = msg || "";
+    s.classList.toggle("error", !!isError);
+  }
+
+  function ensureChart() {
+    if (chart) return;
+    const el = $("chart");
+    chart = LightweightCharts.createChart(el, {
+      width: el.clientWidth,
+      height: el.clientHeight,
+      layout: { background: { type: "solid", color: COLORS.panel }, textColor: "#3b4a58", fontFamily: "Instrument Sans, system-ui, sans-serif" },
+      grid: { vertLines: { color: COLORS.grid }, horzLines: { color: COLORS.grid } },
+      rightPriceScale: { borderColor: COLORS.rule },
+      timeScale: { borderColor: COLORS.rule, rightOffset: 2 },
+    });
+    new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight })).observe(el);
+  }
+
+  const near = (d) => d.points[0];
+  const far = (d) => d.points[d.points.length - 1];
+  const dayLabel = (p) => (p.dte < 1 ? "<1 day" : `${Math.round(p.dte)} day${Math.round(p.dte) === 1 ? "" : "s"}`);
+
+  function draw(d) {
+    ensureChart();
+    series.forEach((s) => chart.removeSeries(s));
+    series = [];
+
+    const candles = chart.addCandlestickSeries({
+      upColor: "#ffffff", downColor: COLORS.ink,
+      borderUpColor: COLORS.ink, borderDownColor: COLORS.ink,
+      wickUpColor: COLORS.ink, wickDownColor: COLORS.ink,
+      priceLineVisible: false, lastValueVisible: false,
+    });
+    const last = d.candles[d.candles.length - 1].time;
+    const pts = d.points.filter((p) => p.expiry > last); // same-day expiry has no room on the time axis
+    const end = pts.length ? pts[pts.length - 1].expiry : last;
+
+    // Whitespace bars for the weekdays up to the last expiry, so the bands are drawn to scale in time.
+    const future = [];
+    for (const t = new Date(last + "T00:00:00Z"); ; ) {
+      t.setUTCDate(t.getUTCDate() + 1);
+      const iso = t.toISOString().slice(0, 10);
+      if (iso > end) break;
+      if (t.getUTCDay() % 6 !== 0 || iso === end) future.push({ time: iso });
+    }
+    candles.setData([...d.candles, ...future]);
+    series.push(candles);
+    candles.createPriceLine({ price: d.spot, color: COLORS.spot, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: "Price" });
+
+    if (pts.length) {
+      const band = (key, color) => {
+        const s = chart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false });
+        s.setData([{ time: last, value: d.spot }, ...pts.map((p) => ({ time: p.expiry, value: p[key] }))]);
+        s.setMarkers(pts.map((p) => ({ time: p.expiry, position: "inBar", shape: "circle", color, size: 0.6 })));
+        series.push(s);
+      };
+      band("upper", COLORS.up);
+      band("lower", COLORS.down);
+    }
+    chart.timeScale().fitContent();
+  }
+
+  function renderTable(d) {
+    const rows = $("rows");
+    rows.innerHTML = "";
+    d.points.forEach((p) => {
+      const tr = document.createElement("tr");
+      if (p.stale) tr.className = "stale";
+      const cells = [
+        [p.expiry], [dayLabel(p)], [fmt(p.atmStrike)], [fmt(p.straddle)],
+        [`±${fmt(p.move)} (${p.movePct.toFixed(1)}%)`],
+        [fmt(p.lower), "down"], [fmt(p.upper), "up"],
+        [p.ivMove != null ? `±${fmt(p.ivMove)}` : "n/a"],
+      ];
+      cells.forEach(([text, cls]) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (cls) td.className = cls;
+        tr.appendChild(td);
+      });
+      rows.appendChild(tr);
+    });
+    $("table-sec").hidden = false;
+  }
+
+  function render(d) {
+    current = d;
+    $("empty").hidden = true;
+    $("chart").hidden = false;
+    $("legend").hidden = false;
+    draw(d);
+    renderTable(d);
+
+    const n = near(d), f = far(d);
+    $("t-symbol").textContent = d.symbol;
+    $("t-name").textContent = d.name;
+    $("t-expiry").textContent = `${d.points.length} expir${d.points.length === 1 ? "y" : "ies"} in the next ${d.days} days`;
+    $("f-spot").textContent = fmt(d.spot);
+    $("l-near").textContent = `1σ move by ${n.expiry}`;
+    $("f-near").innerHTML = `±${fmt(n.move)} <small>${n.movePct.toFixed(1)}%</small>`;
+    $("l-far").textContent = `1σ move by ${f.expiry}`;
+    $("f-far").innerHTML = `±${fmt(f.move)} <small>${f.movePct.toFixed(1)}%</small>`;
+    $("l-up").textContent = `Upper band, ${f.expiry}`;
+    $("f-up").textContent = fmt(f.upper);
+    $("l-down").textContent = `Lower band, ${f.expiry}`;
+    $("f-down").textContent = fmt(f.lower);
+
+    const w = $("warn");
+    w.hidden = !d.warnings.length;
+    w.textContent = d.warnings.join(" ");
+    $("summary").classList.add("on");
+    $("export").disabled = false;
+  }
+
+  async function load(symbol) {
+    const go = $("go");
+    go.disabled = true; go.textContent = "Loading…";
+    setStatus(`Loading ${symbol} and its option expirations…`);
+    try {
+      const r = await fetch(`/api/expected-move?${new URLSearchParams({ symbol })}`);
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.error || `Request failed (${r.status}).`);
+      render(body);
+      setStatus("");
+      history.replaceState(null, "", `?symbol=${encodeURIComponent(body.symbol)}`);
+    } catch (e) {
+      setStatus(e.message, true);
+    } finally {
+      go.disabled = false; go.textContent = "Load";
+    }
+  }
+
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const s = $("symbol").value.trim().toUpperCase();
+    if (s) load(s);
+  });
+
+  // Export: chart screenshot plus a header so the image stands alone.
+  $("export").addEventListener("click", () => {
+    if (!chart || !current) return;
+    const d = current, f = far(d);
+    const shot = chart.takeScreenshot();
+    const k = shot.width / $("chart").clientWidth;
+    const headH = 76 * k, footH = 30 * k;
+    const cv = document.createElement("canvas");
+    cv.width = shot.width; cv.height = Math.round(shot.height + headH + footH);
+    const g = cv.getContext("2d");
+    g.fillStyle = COLORS.panel; g.fillRect(0, 0, cv.width, cv.height);
+    g.drawImage(shot, 0, headH);
+
+    const font = (px, w) => `${w} ${px * k}px "Instrument Sans", system-ui, sans-serif`;
+    const pad = 16 * k;
+    g.textBaseline = "alphabetic";
+    g.fillStyle = COLORS.ink; g.font = font(22, 700);
+    g.fillText(`${d.symbol}  ${d.name}`, pad, 30 * k);
+
+    let x = pad;
+    const item = (label, value, color) => {
+      g.font = font(13, 400); g.fillStyle = "#5a6b7a";
+      g.fillText(label, x, 56 * k);
+      const lw = g.measureText(label + " ").width;
+      g.font = font(15, 700); g.fillStyle = color;
+      g.fillText(value, x + lw, 56 * k);
+      x += lw + g.measureText(value).width + 22 * k;
+    };
+    item("Price", fmt(d.spot), COLORS.spot);
+    item(`1σ by ${f.expiry}`, `±${fmt(f.move)} (${f.movePct.toFixed(1)}%)`, COLORS.ink);
+    item("Lower", fmt(f.lower), COLORS.down);
+    item("Upper", fmt(f.upper), COLORS.up);
+
+    g.font = font(11, 400); g.fillStyle = "#5a6b7a";
+    g.fillText(`${d.points.length} expiries within ${d.days} days, each 1σ = ATM straddle × 1.25. Data: Yahoo Finance. Generated ${new Date().toISOString().slice(0, 10)}.`, pad, cv.height - 10 * k);
+
+    cv.toBlob((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${d.symbol}_expected-move_${d.days}d.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }, "image/png");
+  });
+
+  const initial = new URLSearchParams(location.search).get("symbol");
+  if (initial) { $("symbol").value = initial.toUpperCase(); load(initial.toUpperCase()); }
+})();
+</script>
+</body>
+</html>

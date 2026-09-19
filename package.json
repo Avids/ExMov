@@ -1,0 +1,9 @@
+{
+  "name": "expected-move",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "20.x" },
+  "scripts": { "test": "node test/run.js" },
+  "dependencies": { "yahoo-finance2": "^3.0.0" }
+}
