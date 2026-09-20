@@ -1,6 +1,6 @@
 # Expected move
 
-Enter a ticker, see the last 20 daily candles and the 1σ band implied by ATM option prices for every expiry in the next 30 days (one chart point per expiry, plus a table). Export the chart as a PNG.
+Enter a ticker, see the last 20 daily candles and the expected-move band implied by ATM option prices (width selectable: straddle, 0.85× straddle, or 1σ) for every expiry in the next 30 days (one chart point per expiry, plus a table). Export the chart as a PNG.
 
 - `api/expected-move.js`: Vercel Node function; pulls prices and the options chain from Yahoo Finance via `yahoo-finance2` (the Node equivalent of yfinance).
 - `lib/`: expected-move math and request handling.

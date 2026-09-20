@@ -31,7 +31,7 @@
   form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 20px; }
   .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: 0.85rem; color: var(--muted); }
-  input, button { font: inherit; color: inherit; height: 42px; border-radius: 6px; border: 1px solid var(--rule); background: #fff; padding: 0 12px; }
+  input, select, button { font: inherit; color: inherit; height: 42px; border-radius: 6px; border: 1px solid var(--rule); background: #fff; padding: 0 12px; }
   input { width: 140px; font-weight: 600; text-transform: uppercase; }
   button { cursor: pointer; font-weight: 600; }
   button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
@@ -80,12 +80,20 @@
 <body>
 <main>
   <h1>Expected move</h1>
-  <p class="lede">Enter a ticker to see the last 20 daily candles and the 1-sigma price range implied by at-the-money option prices for every expiry in the next 30 days.</p>
+  <p class="lede">Enter a ticker to see the last 20 daily candles and the expected price range implied by at-the-money option prices for every expiry in the next 30 days.</p>
 
   <form id="form">
     <div class="field">
       <label for="symbol">Ticker</label>
       <input id="symbol" name="symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="15" placeholder="AAPL" required>
+    </div>
+    <div class="field">
+      <label for="method">Band width</label>
+      <select id="method">
+        <option value="1" selected>ATM straddle</option>
+        <option value="0.85">Straddle × 0.85</option>
+        <option value="1.2533">1σ (straddle × 1.25)</option>
+      </select>
     </div>
     <button class="primary" id="go" type="submit">Load</button>
     <span class="spacer"></span>
@@ -112,21 +120,21 @@
   </div>
   <div class="legend" id="legend" hidden>
     <span><i style="border-color:var(--spot)"></i>Current price</span>
-    <span><i style="border-color:var(--up)"></i>Upper 1σ band, one dot per expiry</span>
-    <span><i style="border-color:var(--down)"></i>Lower 1σ band, one dot per expiry</span>
+    <span><i style="border-color:var(--up)"></i>Upper band, one dot per expiry</span>
+    <span><i style="border-color:var(--down)"></i>Lower band, one dot per expiry</span>
   </div>
 
   <section class="table-wrap" id="table-sec" hidden>
     <h2>Expected move by expiry</h2>
     <div class="scroll">
       <table>
-        <thead><tr><th>Expiry</th><th>Days</th><th>ATM strike</th><th>Straddle</th><th>1σ move</th><th>Lower</th><th>Upper</th><th>IV-based move</th></tr></thead>
+        <thead><tr><th>Expiry</th><th>Days</th><th>ATM strike</th><th>Straddle</th><th id="th-move">Expected move</th><th>Lower</th><th>Upper</th><th>IV-based move</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
   </section>
 
-  <p class="method">Method: each point on the chart is one option expiry, calculated on its own. The 1σ move is the ATM straddle (call mid + put mid at the strike nearest the current price) × √(π/2) ≈ 1.25, which converts the straddle's expected absolute move into one standard deviation. The IV cross-check is price × IV × √(days to expiry / 365). Roughly two thirds of outcomes are expected to finish inside the band at expiry. Data comes from Yahoo Finance and may be delayed. This is not investment advice.</p>
+  <p class="method" id="method-note"></p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
@@ -158,6 +166,21 @@
     new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight })).observe(el);
   }
 
+  const METHODS = {
+    "1": { move: "Straddle move", by: "Move by", foot: "band = ATM straddle", note: "The band is the ATM straddle: call mid + put mid at the strike nearest the current price. It is the market's price for the expected size of the move, so it covers roughly 57% of outcomes at expiry (the average absolute move under a normal distribution)." },
+    "0.85": { move: "0.85× straddle move", by: "Move by", foot: "band = ATM straddle × 0.85", note: "The band is 85% of the ATM straddle, a common trader convention (Barchart lists it). Under a normal distribution it covers roughly half of outcomes at expiry." },
+    "1.2533": { move: "1σ move", by: "1σ by", foot: "1σ = ATM straddle × 1.25", note: "The band is a true one standard deviation: the ATM straddle × √(π/2) ≈ 1.25, which converts the straddle's expected absolute move into a standard deviation. It covers roughly two thirds of outcomes at expiry." },
+  };
+  const M = () => METHODS[$("method").value];
+  function applyMethod(d) {
+    const k = parseFloat($("method").value);
+    d.points.forEach((p) => {
+      p.move = p.straddle * k;
+      p.movePct = (p.move / d.spot) * 100;
+      p.upper = d.spot + p.move;
+      p.lower = d.spot - p.move;
+    });
+  }
   const near = (d) => d.points[0];
   const far = (d) => d.points[d.points.length - 1];
   const dayLabel = (p) => (p.dte < 1 ? "<1 day" : `${Math.round(p.dte)} day${Math.round(p.dte) === 1 ? "" : "s"}`);
@@ -232,15 +255,17 @@
     $("legend").hidden = false;
     draw(d);
     renderTable(d);
+    $("th-move").textContent = M().move;
+    $("method-note").textContent = `Method: each point on the chart is one option expiry, calculated on its own. ${M().note} The IV-based column is price × IV × √(days to expiry / 365), a one-standard-deviation cross-check. Data comes from Yahoo Finance and may be delayed. This is not investment advice.`;
 
     const n = near(d), f = far(d);
     $("t-symbol").textContent = d.symbol;
     $("t-name").textContent = d.name;
     $("t-expiry").textContent = `${d.points.length} expir${d.points.length === 1 ? "y" : "ies"} in the next ${d.days} days`;
     $("f-spot").textContent = fmt(d.spot);
-    $("l-near").textContent = `1σ move by ${n.expiry}`;
+    $("l-near").textContent = `${M().move} by ${n.expiry}`;
     $("f-near").innerHTML = `±${fmt(n.move)} <small>${n.movePct.toFixed(1)}%</small>`;
-    $("l-far").textContent = `1σ move by ${f.expiry}`;
+    $("l-far").textContent = `${M().move} by ${f.expiry}`;
     $("f-far").innerHTML = `±${fmt(f.move)} <small>${f.movePct.toFixed(1)}%</small>`;
     $("l-up").textContent = `Upper band, ${f.expiry}`;
     $("f-up").textContent = fmt(f.upper);
@@ -262,6 +287,7 @@
       const r = await fetch(`/api/expected-move?${new URLSearchParams({ symbol })}`);
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || `Request failed (${r.status}).`);
+      applyMethod(body);
       render(body);
       setStatus("");
       history.replaceState(null, "", `?symbol=${encodeURIComponent(body.symbol)}`);
@@ -272,6 +298,7 @@
     }
   }
 
+  $("method").addEventListener("change", () => { if (current) { applyMethod(current); render(current); } });
   $("form").addEventListener("submit", (e) => {
     e.preventDefault();
     const s = $("symbol").value.trim().toUpperCase();
@@ -307,12 +334,12 @@
       x += lw + g.measureText(value).width + 22 * k;
     };
     item("Price", fmt(d.spot), COLORS.spot);
-    item(`1σ by ${f.expiry}`, `±${fmt(f.move)} (${f.movePct.toFixed(1)}%)`, COLORS.ink);
+    item(`${M().by} ${f.expiry}`, `±${fmt(f.move)} (${f.movePct.toFixed(1)}%)`, COLORS.ink);
     item("Lower", fmt(f.lower), COLORS.down);
     item("Upper", fmt(f.upper), COLORS.up);
 
     g.font = font(11, 400); g.fillStyle = "#5a6b7a";
-    g.fillText(`${d.points.length} expiries within ${d.days} days, each 1σ = ATM straddle × 1.25. Data: Yahoo Finance. Generated ${new Date().toISOString().slice(0, 10)}.`, pad, cv.height - 10 * k);
+    g.fillText(`${d.points.length} expiries within ${d.days} days, each ${M().foot}. Data: Yahoo Finance. Generated ${new Date().toISOString().slice(0, 10)}.`, pad, cv.height - 10 * k);
 
     cv.toBlob((blob) => {
       const a = document.createElement("a");
